@@ -1,7 +1,7 @@
 import 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
 import { workerEvents } from '../events/constants.js';
 
-let _model = {};
+let _model = null;
 let _globalCtx = {};
 
 const WEIGHTS = {
@@ -169,6 +169,8 @@ async function configureNeuralNetAndTrain(trainingData) {
             }
         },
     })
+
+    return model;
 }
 
 async function trainModel({ users }) {
@@ -195,12 +197,31 @@ async function trainModel({ users }) {
 }
 
 function recommend(user, context) {
+    if (_model === null) return;
+
+    const userVector = encodeUser(user, context).dataSync();
+    const inputs = context.productVectors.map(({ vector }) => [...userVector, ...vector]);
+
+    const inputTensor = tf.tensor2d(inputs);
+    const predictions = _model.predict(inputTensor);
+
+    const scores = predictions.dataSync();
+
+    const recommendations = context.productVectors
+        .map((product, index) => ({
+            ...product.meta,
+            name: product.name,
+            score: scores[index]
+        }))
+
+    const sortedRecommendations = recommendations.sort((a, b) => b.score - a.score);
+
     console.log('will recommend for user:', user)
-    // postMessage({
-    //     type: workerEvents.recommend,
-    //     user,
-    //     recommendations: []
-    // });
+    postMessage({
+        type: workerEvents.recommend,
+        user,
+        recommendations: sortedRecommendations
+    });
 }
 
 const handlers = {
